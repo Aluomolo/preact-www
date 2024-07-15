@@ -39,7 +39,7 @@ export default class Runner extends Component {
 		}
 		this.didError = true;
 		if (this.props.onError) {
-			this.props.onError({ error });
+			this.props.onError(error);
 		}
 	};
 
@@ -65,24 +65,20 @@ export default class Runner extends Component {
 	}
 
 	run() {
-		if (this.timer) return;
-		this.timer = setTimeout(() => {
-			let { code, setup } = this.props;
-			// onRealm must be called after imports but before user code:
-			const fullSetup = `if (self._onRealm) self._onRealm();${setup || ''}\n`;
-			this.running = worker
-				.process(code, fullSetup)
-				.then(transpiled => this.execute(transpiled))
-				.then(this.commitResult)
-				.catch(this.commitError)
-				.then(() => {
-					this.running = null;
-					this.timer = null;
-					if (this.props.code !== code || this.props.setup !== setup) {
-						this.run();
-					}
-				});
-		}, 500);
+		let { code, setup } = this.props;
+		// onRealm must be called after imports but before user code:
+		const fullSetup = `if (self._onRealm) self._onRealm();${setup || ''}\n`;
+		this.running = worker
+			.process(code, fullSetup)
+			.then(transpiled => this.execute(transpiled))
+			.then(this.commitResult)
+			.catch(this.commitError)
+			.then(() => {
+				this.running = null;
+				if (this.props.code !== code || this.props.setup !== setup) {
+					this.run();
+				}
+			});
 	}
 
 	async rebuild() {
@@ -116,16 +112,23 @@ export default class Runner extends Component {
 			onError: this.commitError
 		});
 		this.realm.globalThis.fetch = cachedFetch;
-		let doc = this.realm.globalThis.document;
-		let style = doc.createElement('style');
-		style.appendChild(
-			doc.createTextNode(`
-				html { font: 100%/1.3 system-ui, sans-serif; background: none; }
-				${this.props.css || ''}
-			`)
-		);
-		doc.head.appendChild(style);
-		createRoot(doc);
+
+		const insertStyles = () => {
+			const doc = this.realm.globalThis.document,
+				style = doc.createElement('style');
+			style.appendChild(
+				doc.createTextNode(`
+					html { font: 100%/1.3 system-ui, sans-serif; background: none; }
+					${this.props.css || ''}
+				`)
+			);
+			doc.head.appendChild(style);
+			createRoot(doc);
+		};
+
+		this.frame.current.contentDocument.readyState !== 'complete'
+			? this.frame.current.onload = insertStyles
+			: insertStyles();
 	}
 
 	async execute(transpiled, isFallback) {
